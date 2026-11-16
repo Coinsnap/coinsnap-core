@@ -336,11 +336,11 @@ class CoinsnapProvider implements PaymentProviderInterface {
 	public function handle_webhook( array $request ): array {
 		do_action( 'wpbn_coinsnap_webhook_received', $request );
 		$invoice_id = isset( $request['invoiceId'] ) ? (string) $request['invoiceId'] : '';
-		$type       = isset( $request['type'] ) ? (string) $request['type'] : '';
-		$paid       = in_array( $type, array( 'InvoiceSettled', 'PaymentReceived', 'InvoicePaid', 'Settled' ), true );
+		// Only the invoice id is taken from the request; whether it is paid comes from the API.
+		$status = '' !== $invoice_id ? $this->check_invoice_status( $invoice_id ) : array( 'paid' => false );
 		return array(
 			'invoice_id' => $invoice_id,
-			'paid'       => $paid,
+			'paid'       => ! empty( $status['paid'] ),
 			'metadata'   => $request,
 		);
 	}
@@ -395,7 +395,7 @@ class CoinsnapProvider implements PaymentProviderInterface {
 
 			if ( $code >= 200 && $code < 300 && is_array( $body ) ) {
 				$status = isset( $body['status'] ) ? (string) $body['status'] : 'unknown';
-				$paid   = in_array( $status, array( 'Settled', 'Paid', 'Complete' ), true );
+				$paid   = \CoinsnapCore\Webhook\InvoiceCheck::is_paid( $this->instance, $invoice_id, $body, false );
 
 				return array(
 					'invoice_id' => $invoice_id,
@@ -420,37 +420,11 @@ class CoinsnapProvider implements PaymentProviderInterface {
 	 * @return bool True if signature valid.
 	 */
 	public function verify_signature(): bool {
-		// Get webhook secret from stored webhook registration data.
 		$webhook_option = get_option( $this->instance->webhook_key() );
-		$secret         = '';
-		if ( is_array( $webhook_option ) && ! empty( $webhook_option['coinsnap']['secret'] ) ) {
-			$secret = (string) $webhook_option['coinsnap']['secret'];
-		}
-		if ( ! $secret ) {
-			return false;
-		}
-		$headers = array(
-			isset( $_SERVER['HTTP_BTCPAY_SIGNATURE'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_BTCPAY_SIGNATURE'] ) ) : '',
-			isset( $_SERVER['HTTP_X_COINSNAP_SIGNATURE'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_COINSNAP_SIGNATURE'] ) ) : '',
-			isset( $_SERVER['HTTP_X_SIGNATURE'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_SIGNATURE'] ) ) : '',
-		);
-		$payload = file_get_contents( 'php://input' );
-		if ( ! $payload ) {
-			$payload = '';
-		}
-		if ( ! $payload ) {
-			return false;
-		}
-		$raw         = hash_hmac( 'sha256', $payload, $secret );
-		$with_prefix = 'sha256=' . $raw;
-		foreach ( $headers as $sig ) {
-			if ( ! $sig ) {
-				continue;
-			}
-			if ( hash_equals( $raw, $sig ) || hash_equals( $with_prefix, $sig ) ) {
-				return true;
-			}
-		}
-		return false;
+		$secret         = ( is_array( $webhook_option ) && ! empty( $webhook_option['coinsnap']['secret'] ) ) ? (string) $webhook_option['coinsnap']['secret'] : '';
+		// X-Coinsnap-Signature: t=<unix time>,v1=<HMAC of "t.body">, with a 5 minute window.
+		$header  = isset( $_SERVER['HTTP_X_COINSNAP_SIGNATURE'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_COINSNAP_SIGNATURE'] ) ) : '';
+		$payload = (string) file_get_contents( 'php://input' );
+		return '' !== $payload && null === \CoinsnapCore\Webhook\Signature::coinsnapProblem( $header, $payload, $secret, time() );
 	}
 }

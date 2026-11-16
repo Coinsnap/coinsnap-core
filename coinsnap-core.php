@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Coinsnap Core
  * Description: Shared payment infrastructure for Coinsnap WordPress plugins.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Requires PHP: 7.4
  * Author: Coinsnap
  * Author URI: https://coinsnap.io
@@ -21,7 +21,7 @@ if ( defined( 'COINSNAP_CORE_VERSION' ) ) {
 	return;
 }
 
-define( 'COINSNAP_CORE_VERSION', '1.0.0' );
+define( 'COINSNAP_CORE_VERSION', '1.1.0' );
 define( 'COINSNAP_CORE_PHP_VERSION', '7.4' );
 define( 'COINSNAP_CORE_PLUGIN_FILE', __FILE__ );
 define( 'COINSNAP_CORE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
@@ -84,6 +84,8 @@ spl_autoload_register( function ( $class ) {
 		'Util\\ProviderFactory'                 => 'Util/class-provider-factory',
 		'Database\\PaymentTable'                => 'Database/class-payment-table',
 		'Rest\\WebhookHelper'                   => 'Rest/class-webhook-helper',
+		'Webhook\\Signature'                    => 'Webhook/class-signature',
+		'Webhook\\InvoiceCheck'                 => 'Webhook/class-invoice-check',
 	);
 
 	if ( isset( $map[ $relative ] ) ) {

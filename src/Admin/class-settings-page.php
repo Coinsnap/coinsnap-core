@@ -201,7 +201,7 @@ class SettingsPage {
 			__( 'Coinsnap API Key', 'coinsnap-core' ),
 			function () use ( $inst, $option_key ) {
 				$s = self::get_settings_for( $inst );
-				echo '<input type="text" class="regular-text" name="' . esc_attr( $option_key ) . '[coinsnap_api_key]" value="' . esc_attr( $s['coinsnap_api_key'] ) . '" />';
+				self::render_key_field( $option_key, 'coinsnap_api_key', (string) $s['coinsnap_api_key'] );
 			},
 			$settings_page,
 			$inst->get( 'menu_slug' ) . '_coinsnap'
@@ -235,7 +235,7 @@ class SettingsPage {
 			__( 'BTCPay API Key', 'coinsnap-core' ),
 			function () use ( $inst, $option_key ) {
 				$s = self::get_settings_for( $inst );
-				echo '<input type="text" class="regular-text" name="' . esc_attr( $option_key ) . '[btcpay_api_key]" value="' . esc_attr( $s['btcpay_api_key'] ) . '" />';
+				self::render_key_field( $option_key, 'btcpay_api_key', (string) $s['btcpay_api_key'] );
 			},
 			$settings_page,
 			$inst->get( 'menu_slug' ) . '_btcpay'
@@ -284,6 +284,37 @@ class SettingsPage {
 	}
 
 	/**
+	 * The stored key is never printed; an empty field keeps it.
+	 */
+	private static function render_key_field( string $option_key, string $field, string $stored ): void {
+		echo '<input type="password" class="regular-text" autocomplete="new-password" name="' . esc_attr( $option_key ) . '[' . esc_attr( $field ) . ']" value="" />';
+		if ( '' !== $stored ) {
+			echo '<p class="description">' . esc_html(
+				sprintf(
+					/* translators: %s: last characters of the stored API key */
+					__( 'A key ending in %s is saved. Leave empty to keep it.', 'coinsnap-core' ),
+					substr( $stored, -4 )
+				)
+			) . '</p>';
+		}
+	}
+
+	/**
+	 * Empty key fields keep the stored keys; a BTCPay key is never kept for a different server.
+	 */
+	private static function keep_stored_keys( PluginInstance $inst, array $input, array $sanitized ): array {
+		$old = self::get_settings_for( $inst );
+		if ( array_key_exists( 'coinsnap_api_key', $input ) && '' === trim( (string) $input['coinsnap_api_key'] ) ) {
+			$sanitized['coinsnap_api_key'] = (string) ( $old['coinsnap_api_key'] ?? '' );
+		}
+		if ( array_key_exists( 'btcpay_api_key', $input ) && '' === trim( (string) $input['btcpay_api_key'] ) ) {
+			$new_host = isset( $input['btcpay_host'] ) ? sanitize_url( (string) $input['btcpay_host'] ) : (string) ( $old['btcpay_host'] ?? '' );
+			$sanitized['btcpay_api_key'] = ( $new_host === (string) ( $old['btcpay_host'] ?? '' ) ) ? (string) ( $old['btcpay_api_key'] ?? '' ) : '';
+		}
+		return $sanitized;
+	}
+
+	/**
 	 * Sanitize settings input for a plugin instance.
 	 *
 	 * @param PluginInstance $inst  Plugin instance.
@@ -310,6 +341,7 @@ class SettingsPage {
 				$sanitized[ $field ] = sanitize_text_field( $input[ $field ] );
 			}
 		}
+		$sanitized = self::keep_stored_keys( $inst, $input, $sanitized );
 
 		// Sanitize URL fields.
 		$url_fields = array( 'coinsnap_api_base', 'btcpay_host' );

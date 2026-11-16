@@ -126,8 +126,7 @@ class BTCPayAuthorizer {
 			'request',
 			function ( $vars ) use ( $endpoint ) {
 				if ( isset( $vars[ $endpoint ] ) ) {
-					$vars[ $endpoint ]              = true;
-					$vars[ $endpoint . '-nonce' ] = wp_create_nonce( 'coinsnap-core-btcpay-nonce' );
+					$vars[ $endpoint ] = true;
 				}
 				return $vars;
 			}
@@ -157,46 +156,44 @@ class BTCPayAuthorizer {
 			return;
 		}
 
-		if ( ! isset( $wp_query->query_vars[ $endpoint . '-nonce' ] )
-			|| ! wp_verify_nonce( $wp_query->query_vars[ $endpoint . '-nonce' ], 'coinsnap-core-btcpay-nonce' ) ) {
-			return;
+		// BTCPay posts here from the admin's browser; only the state handed out with the authorize URL is accepted, once.
+		$state      = isset( $_GET['state'] ) ? preg_replace( '/[^A-Za-z0-9]/', '', (string) wp_unslash( $_GET['state'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$state_host = ( '' !== $state ) ? get_transient( self::state_key( $state ) ) : false;
+		if ( '' !== $state ) {
+			delete_transient( self::state_key( $state ) );
+		}
+		if ( ! is_string( $state_host ) || '' === $state_host ) {
+			status_header( 403 );
+			exit();
 		}
 
-		$settings_url = admin_url( '/admin.php?page=' . $instance->get( 'menu_slug' ) . '-settings' );
-		$option_key   = $instance->option_key();
-		$form_data    = get_option( $option_key, array() );
-		if ( ! is_array( $form_data ) ) {
-			$form_data = array();
-		}
+		$settings_url   = admin_url( '/admin.php?page=' . $instance->get( 'menu_slug' ) . '-settings' );
+		$option_key     = $instance->option_key();
+		$btcpay_host    = $state_host;
+		$btcpay_api_key = isset( $_POST['apiKey'] ) ? sanitize_text_field( wp_unslash( $_POST['apiKey'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- the one-time state above authenticates this request.
 
-		$btcpay_host    = $form_data['btcpay_host'] ?? '';
-		$btcpay_api_key = filter_input( INPUT_POST, 'apiKey', FILTER_SANITIZE_FULL_SPECIAL_CHARS );
-
-		// Verify API key works by fetching stores.
-		$request_url = rtrim( $btcpay_host, '/' ) . '/api/v1/stores';
-		$args        = array(
-			'method'  => 'GET',
-			'headers' => array(
-				'Authorization' => 'token ' . $btcpay_api_key,
-				'Content-Type'  => 'application/json',
-			),
-			'timeout' => 20,
+		// The key must work on that server, or nothing is saved.
+		$response   = wp_remote_request(
+			rtrim( $btcpay_host, '/' ) . '/api/v1/stores',
+			array(
+				'method'  => 'GET',
+				'headers' => array(
+					'Authorization' => 'token ' . $btcpay_api_key,
+					'Content-Type'  => 'application/json',
+				),
+				'timeout' => 20,
+			)
 		);
-
-		$response   = wp_remote_request( $request_url, $args );
 		$code       = wp_remote_retrieve_response_code( $response );
 		$get_stores = json_decode( wp_remote_retrieve_body( $response ), true );
-
-		if ( $code >= 200 && $code < 300 && is_array( $get_stores ) ) {
-			if ( count( $get_stores ) < 1 ) {
-				wp_redirect( $settings_url ); // phpcs:ignore WordPress.Security.SafeRedirect.wp_redirect_wp_redirect
-				exit();
-			}
+		if ( '' === $btcpay_api_key || $code < 200 || $code >= 300 || ! is_array( $get_stores ) || count( $get_stores ) < 1 ) {
+			wp_redirect( $settings_url ); // phpcs:ignore WordPress.Security.SafeRedirect.wp_redirect_wp_redirect
+			exit();
 		}
 
 		// Parse POST data for permissions.
 		$data = array();
-		if ( ! empty( $_POST ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- nonce verified above via query_vars.
+		if ( ! empty( $_POST ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- the one-time state verified above authenticates this request.
 			$data['apiKey'] = $btcpay_api_key;
 			if ( isset( $_POST['permissions'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing
 				$permissions = array_map( 'sanitize_text_field', wp_unslash( $_POST['permissions'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
@@ -254,6 +251,7 @@ class BTCPayAuthorizer {
 				self::update_settings(
 					$option_key,
 					array(
+						'btcpay_host'      => $btcpay_host,
 						'btcpay_api_key'   => $data['apiKey'],
 						'btcpay_store_id'  => explode( ':', $btcpay_perms[0] )[1],
 						'payment_provider' => 'btcpay',
@@ -275,6 +273,13 @@ class BTCPayAuthorizer {
 	 * @param string $option_key The WordPress option name.
 	 * @param array  $data       Key-value pairs to merge into the option.
 	 */
+	/**
+	 * Transient name for a one-time authorization state.
+	 */
+	public static function state_key( string $state ): string {
+		return 'coinsnap_core_btcpay_state_' . $state;
+	}
+
 	public static function update_settings( string $option_key, array $data ): void {
 		$existing = get_option( $option_key, array() );
 		if ( ! is_array( $existing ) ) {

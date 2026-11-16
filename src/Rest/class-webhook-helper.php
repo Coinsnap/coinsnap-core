@@ -48,14 +48,26 @@ class WebhookHelper {
     /**
      * Parse webhook data into a standard format.
      *
-     * @param string $provider Provider name ('coinsnap' or 'btcpay').
-     * @param array  $data     Raw webhook JSON data.
+     * Only the invoice id is taken from the request. Pass the plugin instance so 'paid' is answered by the
+     * payment server's API; without it 'paid' is always false, since the request body proves nothing.
+     *
+     * @param string              $provider Provider name ('coinsnap' or 'btcpay').
+     * @param array               $data     Raw webhook JSON data.
+     * @param PluginInstance|null $instance Plugin config, used to ask the API.
      * @return array { invoice_id: string, paid: bool, type: string, metadata: array }
      */
-    public static function parse_webhook( string $provider, array $data ): array {
+    public static function parse_webhook( string $provider, array $data, ?PluginInstance $instance = null ): array {
         $invoice_id = isset( $data['invoiceId'] ) ? (string) $data['invoiceId'] : '';
         $type       = isset( $data['type'] ) ? (string) $data['type'] : '';
-        $paid       = in_array( $type, array( 'InvoiceSettled', 'PaymentReceived', 'InvoicePaid', 'Settled' ), true );
+        $paid       = false;
+
+        if ( null === $instance ) {
+            _doing_it_wrong( __METHOD__, 'Pass the PluginInstance so the invoice status comes from the API.', '1.1.0' );
+        } elseif ( '' !== $invoice_id ) {
+            $client = ( 'btcpay' === $provider ) ? new BTCPayProvider( $instance ) : new CoinsnapProvider( $instance );
+            $status = $client->check_invoice_status( $invoice_id );
+            $paid   = ! empty( $status['paid'] );
+        }
 
         return array(
             'invoice_id' => $invoice_id,
