@@ -289,10 +289,14 @@ class BTCPayProvider implements PaymentProviderInterface {
 		if ( $code >= 200 && $code < 300 && is_array( $body ) ) {
 			$invoice_id  = isset( $body['id'] ) ? (string) $body['id'] : '';
 			$payment_url = isset( $body['checkoutLink'] ) ? (string) $body['checkoutLink'] : '';
-			return $invoice_id && $payment_url ? array(
+			if ( ! $invoice_id || ! $payment_url ) {
+				return array();
+			}
+			\CoinsnapCore\Webhook\InvoiceCheck::record( $invoice_id, (string) $api_amount, $currency );
+			return array(
 				'invoice_id'  => $invoice_id,
 				'payment_url' => $payment_url,
-			) : array();
+			);
 		}
 		return array();
 	}

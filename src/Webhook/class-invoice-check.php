@@ -33,7 +33,55 @@ class InvoiceCheck {
         if ( $is_btcpay && 'Marked' === ( $invoice['additionalStatus'] ?? '' ) ) {
             return false;
         }
-        return self::created_here( $instance, $invoice_id );
+        if ( ! self::created_here( $instance, $invoice_id ) ) {
+            return false;
+        }
+        // Checked against what this plugin asked for when the record is still there.
+        $expected = get_transient( self::record_key( $invoice_id ) );
+        if ( ! is_array( $expected ) ) {
+            return true;
+        }
+        $paid = $is_btcpay ? ( $invoice['amount'] ?? null ) : ( $invoice['invoiceAmount'] ?? $invoice['fiatAmount'] ?? null );
+        return self::same_amount( $paid, (string) ( $invoice['currency'] ?? '' ), (string) ( $expected['amount'] ?? '' ), (string) ( $expected['currency'] ?? '' ) );
+    }
+
+    /**
+     * Remember the amount and currency an invoice was created for.
+     */
+    public static function record( string $invoice_id, string $amount, string $currency ): void {
+        set_transient( self::record_key( $invoice_id ), array( 'amount' => $amount, 'currency' => $currency ), 180 * DAY_IN_SECONDS );
+    }
+
+    private static function record_key( string $invoice_id ): string {
+        return 'coinsnap_core_inv_' . md5( $invoice_id );
+    }
+
+    private static function same_amount( $paid, string $paid_currency, string $expected, string $expected_currency ): bool {
+        $paid_units     = self::to_minor_units( $paid );
+        $expected_units = self::to_minor_units( $expected );
+        if ( null === $paid_units || null === $expected_units || $expected_units <= 0 ) {
+            return false;
+        }
+        if ( strtoupper( $paid_currency ) !== strtoupper( $expected_currency ) ) {
+            return false;
+        }
+        // One unit of the 8th decimal for BTC, a cent otherwise.
+        $tolerance = 'BTC' === strtoupper( $expected_currency ) ? 1 : 1000000;
+        return abs( $paid_units - $expected_units ) <= $tolerance;
+    }
+
+    /**
+     * Amount as an integer of 10^-8 units, parsed from the decimal string so it is never compared as a float.
+     */
+    public static function to_minor_units( $value ): ?int {
+        if ( is_int( $value ) || is_float( $value ) ) {
+            $value = number_format( (float) $value, 8, '.', '' );
+        }
+        if ( ! is_string( $value ) || ! preg_match( '/^(\d+)(?:\.(\d+))?$/', trim( $value ), $match ) ) {
+            return null;
+        }
+        $fraction = str_pad( $match[2] ?? '', 9, '0' );
+        return (int) $match[1] * 100000000 + (int) substr( $fraction, 0, 8 ) + ( (int) $fraction[8] >= 5 ? 1 : 0 );
     }
 
     /**

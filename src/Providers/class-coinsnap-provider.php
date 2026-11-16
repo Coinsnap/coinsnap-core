@@ -316,6 +316,7 @@ class CoinsnapProvider implements PaymentProviderInterface {
 				$invoice_id  = isset( $body['id'] ) ? (string) $body['id'] : '';
 				$payment_url = isset( $body['checkoutLink'] ) ? (string) $body['checkoutLink'] : '';
 				if ( $invoice_id && $payment_url ) {
+					\CoinsnapCore\Webhook\InvoiceCheck::record( $invoice_id, number_format( $amount_in_currency, 8, '.', '' ), $currency );
 					return array(
 						'invoice_id'  => $invoice_id,
 						'payment_url' => $payment_url,
