@@ -284,6 +284,13 @@ class SettingsPage {
 	}
 
 	/**
+	 * Placeholder for a key field: the last characters of the saved key, or the given hint.
+	 */
+	private static function key_placeholder( string $stored, string $fallback ): string {
+		return '' === $stored ? $fallback : sprintf( '•••• %s', substr( $stored, -4 ) );
+	}
+
+	/**
 	 * The stored key is never printed; an empty field keeps it.
 	 */
 	private static function render_key_field( string $option_key, string $field, string $stored ): void {
@@ -476,13 +483,15 @@ class SettingsPage {
 							</div>
 							<div class="csc-field-row">
 								<label for="csc-coinsnap-api-key"><?php esc_html_e( 'API Key', 'coinsnap-core' ); ?></label>
-								<input type="text"
+								<?php // The stored key is never printed; an empty field keeps it. ?>
+								<input type="password"
 									id="csc-coinsnap-api-key"
 									name="<?php echo esc_attr( $option_key ); ?>[coinsnap_api_key]"
-									value="<?php echo esc_attr( $s['coinsnap_api_key'] ); ?>"
-									placeholder="<?php esc_attr_e( 'Enter your Coinsnap API Key', 'coinsnap-core' ); ?>"
+									value=""
+									autocomplete="new-password"
+									placeholder="<?php echo esc_attr( self::key_placeholder( (string) $s['coinsnap_api_key'], __( 'Enter your Coinsnap API Key', 'coinsnap-core' ) ) ); ?>"
 								/>
-								<p class="csc-field-description"><?php esc_html_e( 'Your API key from the Coinsnap dashboard.', 'coinsnap-core' ); ?></p>
+								<p class="csc-field-description"><?php esc_html_e( 'Your API key from the Coinsnap dashboard. Leave empty to keep the saved key.', 'coinsnap-core' ); ?></p>
 							</div>
 						</div>
 
@@ -506,11 +515,12 @@ class SettingsPage {
 							</div>
 							<div class="csc-field-row">
 								<label for="csc-btcpay-api-key"><?php esc_html_e( 'API Key', 'coinsnap-core' ); ?></label>
-								<input type="text"
+								<input type="password"
 									id="csc-btcpay-api-key"
 									name="<?php echo esc_attr( $option_key ); ?>[btcpay_api_key]"
-									value="<?php echo esc_attr( $s['btcpay_api_key'] ); ?>"
-									placeholder="<?php esc_attr_e( 'Auto-filled after authorization', 'coinsnap-core' ); ?>"
+									value=""
+									autocomplete="new-password"
+									placeholder="<?php echo esc_attr( self::key_placeholder( (string) $s['btcpay_api_key'], __( 'Auto-filled after authorization', 'coinsnap-core' ) ) ); ?>"
 								/>
 								<p class="csc-field-description"><?php esc_html_e( 'This field is populated automatically when you use the Generate API Key flow above.', 'coinsnap-core' ); ?></p>
 							</div>

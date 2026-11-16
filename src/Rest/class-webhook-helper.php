@@ -54,12 +54,13 @@ class WebhookHelper {
      * @param string              $provider Provider name ('coinsnap' or 'btcpay').
      * @param array               $data     Raw webhook JSON data.
      * @param PluginInstance|null $instance Plugin config, used to ask the API.
-     * @return array { invoice_id: string, paid: bool, type: string, metadata: array }
+     * @return array { invoice_id: string, paid: bool, retry: bool, type: string, metadata: array }
      */
     public static function parse_webhook( string $provider, array $data, ?PluginInstance $instance = null ): array {
         $invoice_id = isset( $data['invoiceId'] ) ? (string) $data['invoiceId'] : '';
         $type       = isset( $data['type'] ) ? (string) $data['type'] : '';
         $paid       = false;
+        $retry      = false;
 
         if ( null === $instance ) {
             _doing_it_wrong( __METHOD__, 'Pass the PluginInstance so the invoice status comes from the API.', '1.1.0' );
@@ -67,11 +68,14 @@ class WebhookHelper {
             $client = ( 'btcpay' === $provider ) ? new BTCPayProvider( $instance ) : new CoinsnapProvider( $instance );
             $status = $client->check_invoice_status( $invoice_id );
             $paid   = ! empty( $status['paid'] );
+            $retry  = ! empty( $status['retry'] );
         }
 
         return array(
             'invoice_id' => $invoice_id,
             'paid'       => $paid,
+            // The API could not be asked: reply 503 so the payment server sends the webhook again.
+            'retry'      => $retry,
             'type'       => $type,
             'metadata'   => $data,
         );

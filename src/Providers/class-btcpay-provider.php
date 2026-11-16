@@ -333,6 +333,7 @@ class BTCPayProvider implements PaymentProviderInterface {
 		return array(
 			'invoice_id' => $invoice_id,
 			'paid'       => ! empty( $status['paid'] ),
+			'retry'      => ! empty( $status['retry'] ),
 			'metadata'   => $request,
 		);
 	}
@@ -376,6 +377,7 @@ class BTCPayProvider implements PaymentProviderInterface {
 				'invoice_id' => $invoice_id,
 				'paid'       => false,
 				'status'     => 'error',
+				'retry'      => true,
 				'metadata'   => array( 'error' => 'BTCPay Server could not be reached' ),
 			);
 		}
@@ -399,6 +401,8 @@ class BTCPayProvider implements PaymentProviderInterface {
 			'invoice_id' => $invoice_id,
 			'paid'       => false,
 			'status'     => 'error',
+			// Server errors are worth a retry; an unknown invoice is not.
+			'retry'      => ! ( $code >= 400 && $code < 500 ),
 			'metadata'   => array( 'error' => 'Invalid API response' ),
 		);
 	}

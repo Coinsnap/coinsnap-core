@@ -362,6 +362,7 @@ class CoinsnapProvider implements PaymentProviderInterface {
 		return array(
 			'invoice_id' => $invoice_id,
 			'paid'       => ! empty( $status['paid'] ),
+			'retry'      => ! empty( $status['retry'] ),
 			'metadata'   => $request,
 		);
 	}
@@ -403,6 +404,8 @@ class CoinsnapProvider implements PaymentProviderInterface {
 			'timeout' => 20,
 		);
 
+		// True unless the server answered with a definite client error (unknown invoice): the caller should ask for a retry.
+		$retry = true;
 		foreach ( $endpoints as $url ) {
 			$res = wp_remote_request( $url, $args );
 			do_action( 'wpbn_coinsnap_response', $res, 0 );
@@ -413,6 +416,9 @@ class CoinsnapProvider implements PaymentProviderInterface {
 
 			$code = wp_remote_retrieve_response_code( $res );
 			$body = json_decode( wp_remote_retrieve_body( $res ), true );
+			if ( $code >= 400 && $code < 500 ) {
+				$retry = false;
+			}
 
 			if ( $code >= 200 && $code < 300 && is_array( $body ) ) {
 				$status = isset( $body['status'] ) ? (string) $body['status'] : 'unknown';
@@ -431,6 +437,7 @@ class CoinsnapProvider implements PaymentProviderInterface {
 			'invoice_id' => $invoice_id,
 			'paid'       => false,
 			'status'     => 'error',
+			'retry'      => $retry,
 			'metadata'   => array( 'error' => 'All API endpoints failed' ),
 		);
 	}

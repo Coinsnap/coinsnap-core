@@ -191,18 +191,20 @@ class BTCPayAuthorizer {
 			exit();
 		}
 
-		// Parse POST data for permissions.
-		$data = array();
-		if ( ! empty( $_POST ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- the one-time state verified above authenticates this request.
-			$data['apiKey'] = $btcpay_api_key;
-			if ( isset( $_POST['permissions'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing
-				$permissions = array_map( 'sanitize_text_field', wp_unslash( $_POST['permissions'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
-				if ( is_array( $permissions ) ) {
-					foreach ( $permissions as $key => $value ) {
-						$data['permissions'][ $key ] = sanitize_text_field( $permissions[ $key ] ?? '' );
-					}
-				}
-			}
+		// Permissions and store come from BTCPay itself, not from the posted form.
+		$data     = array();
+		$key_info = wp_remote_request(
+			rtrim( $btcpay_host, '/' ) . '/api/v1/api-keys/current',
+			array(
+				'method'  => 'GET',
+				'headers' => array( 'Authorization' => 'token ' . $btcpay_api_key ),
+				'timeout' => 20,
+			)
+		);
+		$key_body = json_decode( wp_remote_retrieve_body( $key_info ), true );
+		if ( 200 === wp_remote_retrieve_response_code( $key_info ) && is_array( $key_body['permissions'] ?? null ) ) {
+			$data['apiKey']      = $btcpay_api_key;
+			$data['permissions'] = array_values( array_filter( array_map( 'strval', $key_body['permissions'] ) ) );
 		}
 
 		if ( isset( $data['apiKey'] ) && isset( $data['permissions'] ) ) {
