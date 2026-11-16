@@ -266,7 +266,12 @@ class CoinsnapProvider implements PaymentProviderInterface {
 		);
 
 		// Convert amount from cents back to currency units for CoinSnap API.
-		$amount_in_currency = $amount / 100;
+		// SATS/BTC are already in whole units — pass through as-is.
+		if ( in_array( strtoupper( $currency ), array( 'SATS', 'BTC' ), true ) ) {
+			$amount_in_currency = $amount;
+		} else {
+			$amount_in_currency = $amount / 100;
+		}
 
 		// Validate currency code.
 		$supported_currencies = COINSNAP_CURRENCIES;
@@ -274,17 +279,32 @@ class CoinsnapProvider implements PaymentProviderInterface {
 			return array();
 		}
 
+		// Accept both 'email' (canonical) and 'buyer_email' (legacy alias) so the buyer
+		// email is never silently dropped, and surface the form's name/description as the
+		// standard buyer fields the Coinsnap/BTCPay dashboard displays. Custom metadata is
+		// merged last so caller-provided keys always win.
+		$buyer_email = (string) ( $invoice_data['email'] ?? $invoice_data['buyer_email'] ?? '' );
+		$buyer_name  = (string) ( $invoice_data['name'] ?? '' );
+		$item_desc   = (string) ( $invoice_data['description'] ?? '' );
+		$order_id    = (string) ( $invoice_data['order_id'] ?? '' );
+		$custom_meta = ( isset( $invoice_data['metadata'] ) && is_array( $invoice_data['metadata'] ) ) ? $invoice_data['metadata'] : array();
+
 		$payload = array(
 			'amount'       => $amount_in_currency,
 			'currency'     => $currency,
 			'referralCode' => $this->instance->referral_code(),
-			'buyerEmail'   => isset( $invoice_data['email'] ) ? (string) $invoice_data['email'] : '',
+			'buyerEmail'   => $buyer_email,
 			'metadata'     => array_merge(
 				array(
-					'form_id' => $form_id,
-					'email'   => (string) ( $invoice_data['email'] ?? '' ),
+					'form_id'     => $form_id,
+					'email'       => $buyer_email,
+					'buyerEmail'  => $buyer_email,
+					'buyerName'   => $buyer_name,
+					'itemDesc'    => $item_desc,
+					'orderId'     => $order_id,
+					'orderNumber' => $order_id,
 				),
-				isset( $invoice_data['metadata'] ) && is_array( $invoice_data['metadata'] ) ? $invoice_data['metadata'] : array()
+				$custom_meta
 			),
 			'checkout'     => array(
 				'defaultPaymentMethod' => 'LightningNetwork',

@@ -250,20 +250,38 @@ class BTCPayProvider implements PaymentProviderInterface {
 
 		$url = $host . sprintf( CoinsnapConstants::BTCPAY_INVOICES, rawurlencode( $store ) );
 
-		// Convert from minor units to BTCPay expected units.
-		// Our service stores amounts in minor units (e.g., cents for fiat, centisats for SATS).
-		// BTCPay expects major units for fiat (e.g., USD) and whole sats for SATS.
-		$api_amount = $amount / 100;
+		// Convert from minor units to API expected units.
+		// Fiat amounts are stored in cents (e.g., 1000 = €10.00) — divide by 100.
+		// SATS/BTC are already in whole units — pass through as-is.
+		if ( in_array( strtoupper( $currency ), array( 'SATS', 'BTC' ), true ) ) {
+			$api_amount = $amount;
+		} else {
+			$api_amount = $amount / 100;
+		}
+
+		// Accept both 'email' (canonical) and 'buyer_email' (legacy alias) and surface the
+		// form's name/description as the standard buyer fields BTCPay displays. Custom
+		// metadata is merged last so caller-provided keys always win.
+		$buyer_email = (string) ( $invoice_data['email'] ?? $invoice_data['buyer_email'] ?? '' );
+		$buyer_name  = (string) ( $invoice_data['name'] ?? '' );
+		$item_desc   = (string) ( $invoice_data['description'] ?? '' );
+		$order_id    = (string) ( $invoice_data['order_id'] ?? '' );
+		$custom_meta = ( isset( $invoice_data['metadata'] ) && is_array( $invoice_data['metadata'] ) ) ? $invoice_data['metadata'] : array();
 
 		$payload = array(
 			'amount'   => (string) $api_amount,
 			'currency' => $currency,
 			'metadata' => array_merge(
 				array(
-					'form_id' => $form_id,
-					'email'   => (string) ( $invoice_data['email'] ?? '' ),
+					'form_id'     => $form_id,
+					'email'       => $buyer_email,
+					'buyerEmail'  => $buyer_email,
+					'buyerName'   => $buyer_name,
+					'itemDesc'    => $item_desc,
+					'orderId'     => $order_id,
+					'orderNumber' => $order_id,
 				),
-				isset( $invoice_data['metadata'] ) && is_array( $invoice_data['metadata'] ) ? $invoice_data['metadata'] : array()
+				$custom_meta
 			),
 		);
 
