@@ -41,6 +41,13 @@ if ( ! defined( 'COINSNAP_CURRENCIES' ) ) {
 	define( 'COINSNAP_CURRENCIES', array( 'EUR', 'USD', 'SATS', 'BTC', 'CAD', 'JPY', 'GBP', 'CHF', 'RUB' ) );
 }
 
+// When invoice records started: invoices created before then are accepted only shortly after (see InvoiceCheck).
+add_action( 'init', function () {
+	if ( ! get_option( 'coinsnap_core_records_since' ) ) {
+		update_option( 'coinsnap_core_records_since', time(), true );
+	}
+} );
+
 // PHP version check.
 if ( version_compare( PHP_VERSION, COINSNAP_CORE_PHP_VERSION, '<' ) ) {
 	add_action( 'admin_notices', function () {

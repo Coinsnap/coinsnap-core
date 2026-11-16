@@ -36,10 +36,11 @@ class InvoiceCheck {
         if ( ! self::created_here( $instance, $invoice_id ) ) {
             return false;
         }
-        // Checked against what this plugin asked for when the record is still there.
-        $expected = get_transient( self::record_key( $invoice_id ) );
+        $expected = get_option( self::record_key( $invoice_id ) );
         if ( ! is_array( $expected ) ) {
-            return true;
+            // No record: only invoices open at the upgrade to 1.1.0, for one day after it.
+            $since = (int) get_option( 'coinsnap_core_records_since', 0 );
+            return $since > 0 && time() - $since < DAY_IN_SECONDS;
         }
         $paid = $is_btcpay ? ( $invoice['amount'] ?? null ) : ( $invoice['invoiceAmount'] ?? $invoice['fiatAmount'] ?? null );
         return self::same_amount( $paid, (string) ( $invoice['currency'] ?? '' ), (string) ( $expected['amount'] ?? '' ), (string) ( $expected['currency'] ?? '' ) );
@@ -49,7 +50,8 @@ class InvoiceCheck {
      * Remember the amount and currency an invoice was created for.
      */
     public static function record( string $invoice_id, string $amount, string $currency ): void {
-        set_transient( self::record_key( $invoice_id ), array( 'amount' => $amount, 'currency' => $currency ), 180 * DAY_IN_SECONDS );
+        // An option, not a transient: an object cache may evict transients, and a missing record refuses the payment.
+        update_option( self::record_key( $invoice_id ), array( 'amount' => $amount, 'currency' => $currency ), false );
     }
 
     private static function record_key( string $invoice_id ): string {
@@ -85,7 +87,7 @@ class InvoiceCheck {
     }
 
     /**
-     * An invoice with no payment row was not created by this plugin. Plugins that keep no table skip the check.
+     * An invoice with no payment row was not created by this plugin. Plugins that keep no table rely on the amount record.
      */
     public static function created_here( PluginInstance $instance, string $invoice_id ): bool {
         global $wpdb;
