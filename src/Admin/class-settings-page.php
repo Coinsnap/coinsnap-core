@@ -48,7 +48,11 @@ class SettingsPage {
 			$opts = array();
 		}
 
-		return array_merge( $defaults, $opts );
+		$settings = array_merge( $defaults, $opts );
+		// Webhook signatures are always checked. The old debug switch is ignored, so a value saved by
+		// an earlier version can't leave a consuming plugin accepting unsigned "paid" webhooks.
+		$settings['disable_webhook_verification'] = false;
+		return $settings;
 	}
 
 	/**
@@ -336,10 +340,8 @@ class SettingsPage {
 			'payment_provider',
 			'coinsnap_api_key',
 			'coinsnap_store_id',
-			'coinsnap_webhook_secret',
 			'btcpay_api_key',
 			'btcpay_store_id',
-			'btcpay_webhook_secret',
 			'log_level',
 		);
 
@@ -368,8 +370,8 @@ class SettingsPage {
 			$sanitized['ngrok_url'] = esc_url_raw( $input['ngrok_url'] );
 		}
 
-		// Sanitize boolean fields.
-		$sanitized['disable_webhook_verification'] = isset( $input['disable_webhook_verification'] ) && $input['disable_webhook_verification'];
+		// Webhook verification can't be turned off (see get_settings_for()).
+		$sanitized['disable_webhook_verification'] = false;
 
 		// Clear connection transients so next admin page load re-checks.
 		$old        = self::get_settings_for( $inst );
@@ -588,18 +590,6 @@ class SettingsPage {
 								<span id="csc-webhook-status" style="margin-left:10px;"></span>
 								<p class="csc-field-description"><?php esc_html_e( 'Force re-registration of the webhook with the payment provider. Use if webhooks are not being received.', 'coinsnap-core' ); ?></p>
 							</div>
-						</div>
-						<div class="csc-field-row">
-							<label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-								<input type="checkbox"
-									id="csc-disable-webhook-verification"
-									name="<?php echo esc_attr( $option_key ); ?>[disable_webhook_verification]"
-									value="1"
-									<?php checked( ! empty( $s['disable_webhook_verification'] ) ); ?>
-								/>
-								<?php esc_html_e( 'Disable Webhook Verification', 'coinsnap-core' ); ?>
-							</label>
-							<p class="csc-field-description"><?php esc_html_e( 'Skip webhook signature verification. Use only for debugging — disable in production after testing.', 'coinsnap-core' ); ?></p>
 						</div>
 						<?php
 							$is_local = strpos( get_site_url(), 'localhost' ) !== false || strpos( get_site_url(), '.ddev.site' ) !== false || strpos( get_site_url(), '.local' ) !== false;

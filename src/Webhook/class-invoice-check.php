@@ -36,7 +36,7 @@ class InvoiceCheck {
         if ( ! self::created_here( $instance, $invoice_id ) ) {
             return false;
         }
-        $expected = get_option( self::record_key( $invoice_id ) );
+        $expected = get_option( self::record_key( $instance, $invoice_id ) );
         if ( ! is_array( $expected ) ) {
             // No record: only invoices open at the upgrade to 1.1.0, for one day after it.
             $since = (int) get_option( 'coinsnap_core_records_since', 0 );
@@ -47,15 +47,16 @@ class InvoiceCheck {
     }
 
     /**
-     * Remember the amount and currency an invoice was created for.
+     * Remember the amount and currency an invoice was created for, for this plugin only.
      */
-    public static function record( string $invoice_id, string $amount, string $currency ): void {
+    public static function record( PluginInstance $instance, string $invoice_id, string $amount, string $currency ): void {
         // An option, not a transient: an object cache may evict transients, and a missing record refuses the payment.
-        update_option( self::record_key( $invoice_id ), array( 'amount' => $amount, 'currency' => $currency ), false );
+        update_option( self::record_key( $instance, $invoice_id ), array( 'amount' => $amount, 'currency' => $currency ), false );
     }
 
-    private static function record_key( string $invoice_id ): string {
-        return 'coinsnap_core_inv_' . md5( $invoice_id );
+    // Keyed by plugin as well, so another Coinsnap plugin on the same site and store never counts this plugin's invoices as its own (6.4).
+    private static function record_key( PluginInstance $instance, string $invoice_id ): string {
+        return 'coinsnap_core_inv_' . md5( $instance->option_key() . '|' . $invoice_id );
     }
 
     private static function same_amount( $paid, string $paid_currency, string $expected, string $expected_currency ): bool {

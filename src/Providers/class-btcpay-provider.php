@@ -102,6 +102,11 @@ class BTCPayProvider implements PaymentProviderInterface {
 	/**
 	 * Check existing webhook on BTCPay server.
 	 *
+	 * False only when the server answered and our stored webhook is not there, so the caller
+	 * should register a new one. When the server can't be asked (network error, 5xx) this
+	 * returns true: an API error is never "no webhook", or every glitch would create a new
+	 * webhook and replace the secret.
+	 *
 	 * @return bool
 	 */
 	public function check_webhook(): bool {
@@ -137,11 +142,11 @@ class BTCPayProvider implements PaymentProviderInterface {
 
 			$res = wp_remote_request( $url, $args );
 
-			if ( is_wp_error( $res ) ) {
-				return false;
+			$code = is_wp_error( $res ) ? 0 : (int) wp_remote_retrieve_response_code( $res );
+			if ( 0 === $code || $code >= 500 ) {
+				return true; // Unknown, not missing: keep the stored webhook and secret.
 			}
 
-			$code          = wp_remote_retrieve_response_code( $res );
 			$storeWebhooks = json_decode( wp_remote_retrieve_body( $res ), true );
 			if ( $code >= 200 && $code < 300 && is_array( $storeWebhooks ) ) {
 
@@ -310,7 +315,7 @@ class BTCPayProvider implements PaymentProviderInterface {
 			if ( ! $invoice_id || ! $payment_url ) {
 				return array();
 			}
-			\CoinsnapCore\Webhook\InvoiceCheck::record( $invoice_id, (string) $api_amount, $currency );
+			\CoinsnapCore\Webhook\InvoiceCheck::record( $this->instance, $invoice_id, (string) $api_amount, $currency );
 			return array(
 				'invoice_id'  => $invoice_id,
 				'payment_url' => $payment_url,
