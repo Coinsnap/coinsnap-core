@@ -306,25 +306,30 @@ class My_Bitcoin_Checkout {
     public function register_rest_routes(): void {
         register_rest_route( $this->core->rest_namespace(), '/webhook/coinsnap', array(
             'methods'             => 'POST',
-            'permission_callback' => '__return_true',
+            // Public on purpose, but nothing runs unless the signature is valid. Rejections are logged.
+            'permission_callback' => function ( WP_REST_Request $request ) {
+                return WebhookHelper::check_request( $this->core, 'coinsnap', $request );
+            },
             'callback'            => array( $this, 'handle_coinsnap_webhook' ),
         ) );
     }
 
     public function handle_coinsnap_webhook( WP_REST_Request $request ) {
-        // Verify signature before trusting anything.
-        if ( ! WebhookHelper::verify_coinsnap_signature( $this->core ) ) {
-            return new WP_Error( 'invalid_signature', 'Invalid webhook signature', array( 'status' => 401 ) );
-        }
-
+        // The signature was checked in permission_callback.
+        // Only the invoice id is used from the request; passing the instance makes
+        // parse_webhook() ask the API whether the invoice is paid.
         $data   = json_decode( $request->get_body(), true ) ?: array();
-        $parsed = WebhookHelper::parse_webhook( 'coinsnap', $data );
+        $parsed = WebhookHelper::parse_webhook( 'coinsnap', $data, $this->core );
 
-        if ( $parsed['paid'] ) {
-            // Your business logic here — fulfill the order, grant paywall access,
-            // email the customer, update a post meta, etc.
-            do_action( 'mbc_payment_settled', $parsed['invoice_id'], $parsed['metadata'] );
-            $this->logger->info( "Invoice {$parsed['invoice_id']} settled" );
+        if ( $parsed['retry'] ) {
+            // The API could not be reached: a 503 makes Coinsnap send the webhook again.
+            return new WP_REST_Response( array( 'received' => false ), 503 );
+        }
+        // Fulfil only if the API says paid AND this call flipped the row (retries and replays change nothing).
+        if ( $parsed['paid'] && PaymentTable::mark_paid_once( $this->core, $parsed['invoice_id'] ) ) {
+            // Look the payment up by $parsed['invoice_id'] in your own records. Do not trust
+            // anything else from the request body.
+            do_action( 'mbc_payment_settled', $parsed['invoice_id'] );
         }
 
         return rest_ensure_response( array( 'received' => true ) );
@@ -456,11 +461,11 @@ CREATE TABLE {prefix}{table_suffix} (
 1. User submits your form → plugin calls `ProviderFactory::create($instance)->create_invoice(...)`.
 2. User gets redirected to the Coinsnap/BTCPay checkout and pays.
 3. Coinsnap/BTCPay POSTs to `{site}/wp-json/{rest_namespace}/webhook/{provider}` with a JSON body and an HMAC signature header.
-4. Your REST route calls `WebhookHelper::verify_{provider}_signature( $instance )` — returns `false` if the signature is invalid or missing.
-5. `WebhookHelper::parse_webhook( 'coinsnap', $data )` returns `{ invoice_id, paid, type, metadata }`.
-6. Your code does whatever it needs (update DB row, email user, grant access, fire an action hook) and returns a 200 response.
+4. Your REST route's `permission_callback` calls `WebhookHelper::check_request( $instance, $provider, $request )` — `false` (401) if the signature is missing, wrong, older than 5 minutes (Coinsnap), or no secret is stored. Each rejection is logged with a fixed reason. Signature checking cannot be turned off.
+5. `WebhookHelper::parse_webhook( 'coinsnap', $data, $instance )` returns `{ invoice_id, paid, retry, type, metadata }`. `paid` comes from the payment server's API (settled, created by this plugin, matching the amount it asked for); without `$instance` it is always `false`. `metadata` is the raw request body and must not be trusted.
+6. If `retry` is true, reply 503 so the webhook is sent again. Otherwise, if `paid`, call `PaymentTable::mark_paid_once( $instance, $invoice_id )` and fulfil only when it returns `true`; reply 200.
 
-Coinsnap-side webhook **registration** happens automatically when the admin clicks "Connection check" on the settings page — `AjaxHandlers::handle_connection_check()` registers the webhook if it's missing and stores the secret in the `webhook_key` option.
+Webhook **registration** is up to the consuming plugin, from an admin action (capability and nonce checked first) or admin page load, never from a visitor's request: call the provider's `check_webhook()` / `register_webhook()`. `check_webhook()` returns `true` when the API can't be reached, so a network error never replaces a working webhook and its secret. Store the returned webhook id and secret under the instance's `webhook_key` option. Use a `webhook_key` unique to your plugin; another Coinsnap plugin using the same option name would overwrite your secret.
 
 ---
 
@@ -476,12 +481,9 @@ Required BTCPay permissions (set in `BTCPayAuthorizer::REQUIRED_PERMISSIONS`):
 - `btcpay.store.canviewinvoices`
 - `btcpay.store.cancreateinvoice`
 - `btcpay.store.canviewstoresettings`
-- `btcpay.store.canmodifyinvoices`
-
-Optional (webhook management):
-
-- `btcpay.store.cancreatenonapprovedpullpayments`
 - `btcpay.store.webhooks.canmodifywebhooks`
+
+The callback accepts the key only with the one-time `state` issued by `handle_btcpay_url()`, reads the key's permissions from BTCPay (`GET /api/v1/api-keys/current`), and saves it only if every permission is one of the above for a single store (`BTCPayAuthorizer::acceptable_key_store()`). Unrestricted, server-wide or multi-store keys are refused.
 
 ---
 
