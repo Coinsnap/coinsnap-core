@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- New: `create_invoice()` sends `$invoice_data['order_id']` as the top-level `orderId` on Coinsnap (Coinsnap shows and searches it, and without it generates its own `CS-…` number and writes that into `metadata.orderId`). On BTCPay Server it goes in `metadata.orderId`, where BTCPay reads it. `metadata.orderId` and the top-level field always carry the same value.
+- New: `$invoice_data['metadata']` may hold any keys, nested arrays included (`lineItems`, `formFields`, …); they are sent as they are and win over the keys the core builds. `order_number` sets `metadata.orderNumber` (default: `order_id`). The buyer name is also sent as `customerName`.
+- Change: empty values (`''`, `null`, empty arrays) are no longer sent in metadata, and the Coinsnap top-level `buyerEmail` is sent only when there is one.
+
 ## 1.1.0
 
 Upgrade note for consuming plugins: pass the plugin instance to `WebhookHelper::parse_webhook( $provider, $data, $instance )`. Without it, `paid` is now always `false`, because the request body proves nothing.

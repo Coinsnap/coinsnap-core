@@ -314,6 +314,69 @@ t('pw logs retry', strpos($l, 'reason=retry: API unavailable') !== false);
 t('pw logs status New', strpos($l, 'reason=status New') !== false);
 t('pw log has no key/store id', strpos($l, 'SECRET') === false && strpos($l, 'STOREID') === false);
 
+// ---------- create_invoice: orderId and metadata ----------
+// Captures the create-invoice request body for both providers (fake HTTP, no real API).
+function capture_create(string $prov, array $invoice_data, string $currency = 'EUR', int $amount = 1500): array {
+    setup_api([]);
+    $GLOBALS['captured'] = null;
+    $GLOBALS['http'] = [['POST ', function ($url, $args) { $GLOBALS['captured'] = json_decode($args['body'], true); return resp(200, ['id' => 'invNew', 'checkoutLink' => 'https://pay.test/i/invNew']); }]];
+    $p = $prov === 'btcpay' ? new BTCPayProvider($GLOBALS['A']) : new CoinsnapProvider($GLOBALS['A']);
+    $r = $p->create_invoice(42, $amount, $currency, $invoice_data);
+    return [$r, $GLOBALS['captured'] ?? []];
+}
+$full = [
+    'order_id'    => 'donation_123',
+    'email'       => 'jane@example.test',
+    'name'        => 'Jane Doe',
+    'description' => 'Thank you',
+    'metadata'    => [
+        'platform'   => 'wordpress',
+        'campaignId' => '7',
+        'publicDonor' => '0',
+        'satsamount' => '',
+        'lineItems'  => [['name' => 'Donation', 'quantity' => 1, 'price' => 15, 'sku' => ''], ['name' => '', 'quantity' => null]],
+        'formFields' => ['Company' => 'ACME', 'Empty' => ''],
+        'nothing'    => [],
+    ],
+];
+foreach (['coinsnap', 'btcpay'] as $prov) {
+    [$r, $b] = capture_create($prov, $full);
+    $m = $b['metadata'] ?? [];
+    t("ci $prov invoice returned", ($r['invoice_id'] ?? '') === 'invNew');
+    t("ci $prov metadata.orderId", ($m['orderId'] ?? null) === 'donation_123');
+    t("ci $prov metadata.orderNumber defaults to order_id", ($m['orderNumber'] ?? null) === 'donation_123');
+    t("ci $prov buyer fields", ($m['buyerEmail'] ?? '') === 'jane@example.test' && ($m['buyerName'] ?? '') === 'Jane Doe' && ($m['customerName'] ?? '') === 'Jane Doe' && ($m['itemDesc'] ?? '') === 'Thank you');
+    t("ci $prov legacy keys kept", ($m['form_id'] ?? null) === 42 && ($m['email'] ?? '') === 'jane@example.test');
+    t("ci $prov custom metadata passed through", ($m['platform'] ?? '') === 'wordpress' && ($m['campaignId'] ?? '') === '7' && ($m['publicDonor'] ?? null) === '0');
+    t("ci $prov nested arrays passed, empties dropped", ($m['lineItems'] ?? null) === [['name' => 'Donation', 'quantity' => 1, 'price' => 15]] && ($m['formFields'] ?? null) === ['Company' => 'ACME']);
+    t("ci $prov empty values not sent", !array_key_exists('satsamount', $m) && !array_key_exists('nothing', $m));
+    t("ci $prov amount", (string) ($b['amount'] ?? '') === '15');
+}
+[, $b] = capture_create('coinsnap', $full);
+t('ci coinsnap top-level orderId', ($b['orderId'] ?? null) === 'donation_123');
+t('ci coinsnap top-level buyerEmail', ($b['buyerEmail'] ?? null) === 'jane@example.test');
+t('ci coinsnap referralCode kept', array_key_exists('referralCode', $b));
+[, $b] = capture_create('btcpay', $full);
+t('ci btcpay no top-level orderId/buyerEmail (BTCPay reads metadata)', !array_key_exists('orderId', $b) && !array_key_exists('buyerEmail', $b));
+// Caller metadata wins; top-level orderId follows metadata.orderId.
+[, $b] = capture_create('coinsnap', ['order_id' => 'A1', 'metadata' => ['orderId' => 'B2', 'orderNumber' => 'No. 5']]);
+t('ci metadata.orderId wins and top-level matches', ($b['orderId'] ?? '') === 'B2' && ($b['metadata']['orderId'] ?? '') === 'B2' && ($b['metadata']['orderNumber'] ?? '') === 'No. 5');
+[, $b] = capture_create('btcpay', ['order_id' => 'A1', 'order_number' => '1001']);
+t('ci order_number sets orderNumber', ($b['metadata']['orderId'] ?? '') === 'A1' && ($b['metadata']['orderNumber'] ?? '') === '1001');
+[, $b] = capture_create('coinsnap', ['metadata' => ['orderId' => 77]]);
+t('ci numeric orderId sent as string', ($b['orderId'] ?? null) === '77' && ($b['metadata']['orderId'] ?? null) === '77');
+// Nothing given: no orderId/buyerEmail sent (Coinsnap then makes its own), no empty strings in metadata.
+[, $b] = capture_create('coinsnap', []);
+t('ci empty data: no orderId, no buyerEmail', !array_key_exists('orderId', $b) && !array_key_exists('buyerEmail', $b));
+t('ci empty data: metadata has no empty strings', $b['metadata'] === ['form_id' => 42]);
+[, $b] = capture_create('coinsnap', ['buyer_email' => 'old@example.test']);
+t('ci buyer_email alias still works', ($b['buyerEmail'] ?? '') === 'old@example.test' && ($b['metadata']['buyerEmail'] ?? '') === 'old@example.test');
+[, $b] = capture_create('btcpay', ['order_id' => 'S1'], 'SATS', 2100);
+t('ci btcpay SATS amount unchanged', ($b['amount'] ?? '') === '2100' && ($b['metadata']['orderId'] ?? '') === 'S1');
+[$r, $b] = capture_create('coinsnap', ['order_id' => 'R1']);
+$rec = get_option('coinsnap_core_inv_' . md5('plugA_settings|invNew'));
+t('ci amount record still written', is_array($rec) && $rec['amount'] === '15.00000000' && $rec['currency'] === 'EUR');
+
 // ---------- Logger ----------
 $lg = new Logger('plugZ-logs', 'plugZ.log', 'debug');
 $lg->error('ctx test', ['api_key' => 'K1', 'nested' => ['webhookSecret' => 'S1', 'Authorization' => 'token T1'], 'BTCPay-Sig' => 'sha256=abc', 'note' => 'fine']);
