@@ -121,7 +121,16 @@ add_action( 'plugins_loaded', function () {
         $form_id  = 42,
         $amount   = 1500,   // in cents (15.00 EUR)
         $currency = 'EUR',
-        $data     = array( 'email' => 'buyer@example.com' )
+        $data     = array(
+            'order_id'    => '1234',              // your ID of what is paid: sent as orderId
+            'email'       => 'buyer@example.com',
+            'name'        => 'Jane Doe',
+            'description' => 'Ticket for the meetup',
+            'metadata'    => array(               // anything else, sent as invoice metadata
+                'platform' => 'my-plugin',
+                'lineItems' => array( array( 'name' => 'Ticket', 'quantity' => 1, 'price' => 15 ) ),
+            ),
+        )
     );
 
     // $invoice['payment_url'] → redirect the user here
