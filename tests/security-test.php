@@ -377,6 +377,24 @@ t('ci btcpay SATS amount unchanged', ($b['amount'] ?? '') === '2100' && ($b['met
 $rec = get_option('coinsnap_core_inv_' . md5('plugA_settings|invNew'));
 t('ci amount record still written', is_array($rec) && $rec['amount'] === '15.00000000' && $rec['currency'] === 'EUR');
 
+// ---------- create_invoice: the server's refusal reaches the caller ----------
+$dust = ['message' => 'Amount is below the on-chain dust threshold. Enable Lightning on this store to accept smaller amounts.'];
+setup_api([['/api/v1/stores/', resp(400, $dust)], ['/api/stores/', resp(404, '<pre>Cannot POST</pre>')]]);
+$r = (new CoinsnapProvider($A))->create_invoice(42, 100, 'SATS', []);
+t('ci 400 with message: invoice_refused + message', ($r['error'] ?? '') === 'invoice_refused' && ($r['status'] ?? 0) === 400 && ($r['message'] ?? '') === $dust['message'] && empty($r['invoice_id']));
+t('ci 400: legacy path not tried', 1 === count($GLOBALS['http_log']));
+setup_api([['/api/v1/stores/', resp(422, ['message' => '<b>Bad</b> currency'])]]);
+$r = (new CoinsnapProvider($A))->create_invoice(42, 100, 'SATS', []);
+t('ci 422 message is plain text', ($r['error'] ?? '') === 'invoice_refused' && ($r['message'] ?? '') === 'Bad currency');
+setup_api([['/api/v1/stores/', resp(400, ['error' => 'x'])]]);
+$r = (new CoinsnapProvider($A))->create_invoice(42, 100, 'SATS', []);
+t('ci 400 without message: invoice_refused, empty message', ($r['error'] ?? '') === 'invoice_refused' && ($r['message'] ?? null) === '');
+// Auth and server errors stay an empty result (nothing from them is shown to visitors).
+foreach ([[401, ['message' => 'Invalid API key']], [403, ['message' => 'Forbidden']], [500, ['message' => 'boom']]] as [$code, $b]) {
+    setup_api([['/api/v1/stores/', resp($code, $b)], ['/api/stores/', resp(404, 'nope')]]);
+    t("ci $code -> empty result", [] === (new CoinsnapProvider($A))->create_invoice(42, 100, 'SATS', []));
+}
+
 // ---------- Logger ----------
 $lg = new Logger('plugZ-logs', 'plugZ.log', 'debug');
 $lg->error('ctx test', ['api_key' => 'K1', 'nested' => ['webhookSecret' => 'S1', 'Authorization' => 'token T1'], 'BTCPay-Sig' => 'sha256=abc', 'note' => 'fine']);
