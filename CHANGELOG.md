@@ -5,6 +5,7 @@
 - New: `create_invoice()` sends `$invoice_data['order_id']` as the top-level `orderId` on Coinsnap (Coinsnap shows and searches it, and without it generates its own `CS-…` number and writes that into `metadata.orderId`). On BTCPay Server it goes in `metadata.orderId`, where BTCPay reads it. `metadata.orderId` and the top-level field always carry the same value.
 - New: `$invoice_data['metadata']` may hold any keys, nested arrays included (`lineItems`, `formFields`, …); they are sent as they are and win over the keys the core builds. `order_number` sets `metadata.orderNumber` (default: `order_id`). The buyer name is also sent as `customerName`.
 - Change: empty values (`''`, `null`, empty arrays) are no longer sent in metadata, and the Coinsnap top-level `buyerEmail` is sent only when there is one.
+- New: when Coinsnap refuses a new invoice with a 400 or 422, `create_invoice()` returns `{ error: 'invoice_refused', status, message }` (the server's `message` as plain text, at most 300 characters, `''` if it sent none) and no longer tries the legacy `/api/stores/…` path, which only answered 404. Before, the refusal (e.g. "Amount is below the on-chain dust threshold" on a store without Lightning) became an empty array and plugins could only show a generic error. Other failures (401/403, 5xx, network) still return an empty array, so nothing from them reaches visitors. Minimum amounts are unchanged: whether a small amount is payable depends on the store (Lightning), so the API decides.
 
 ## 1.1.0
 
